@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Dict, Any, Optional
 from app.services.cache import get_revenue_summary
@@ -17,11 +18,18 @@ async def get_dashboard_summary(
 
     revenue_data = await get_revenue_summary(property_id, tenant_id, month, year)
 
-    total_revenue_float = float(revenue_data['total'])
+    # Money must not travel as float: IEEE-754 cannot exactly represent
+    # values like 0.1, so float() introduces precision drift that
+    # accumulates in any downstream arithmetic. Quantize to 2 decimals
+    # (USD) using Decimal and serialize as a string so the API contract
+    # carries the exact value (industry pattern: Stripe, PayPal, etc.).
+    total_revenue = Decimal(revenue_data['total']).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
 
     return {
         "property_id": revenue_data['property_id'],
-        "total_revenue": total_revenue_float,
+        "total_revenue": str(total_revenue),
         "currency": revenue_data['currency'],
         "reservations_count": revenue_data['count']
     }
